@@ -45,6 +45,22 @@ To run a clone you already have, copy the folder into `~/.config/omarchy/plugins
 The first reading lands a few seconds after the shell starts. Nothing is fetched while the bar draws: the
 helper script owns the network and the widget only ever reads a file.
 
+## Removal
+
+```sh
+omarchy plugin remove io.github.danielerikssoncoder.ps5-firmware
+```
+
+The folder is deleted rather than backed up, because it is a git clone and the code stays upstream, and the
+shell unloads the plugin if it was enabled. What is left behind is the reading:
+
+```
+~/.local/state/omarchy/plugins/io.github.danielerikssoncoder.ps5-firmware/
+```
+
+Delete that folder as well if you want a clean slate. It holds the last reading, the change history, and the id
+of the notification that is being updated in place instead of stacking up.
+
 ## Settings
 
 All five live in the widget's own settings (the bar's settings UI, or `~/.config/omarchy/shell.json`).
