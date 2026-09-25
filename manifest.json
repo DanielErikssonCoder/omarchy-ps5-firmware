@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.danielerikssoncoder.ps5-firmware",
+  "name": "PS5 Firmware",
+  "version": "0.1.0",
+  "author": "Daniel Eriksson",
+  "license": "MIT",
+  "description": "Watches the PlayStation 5 firmware manifests and speaks up only when something actually changes: a new latest version, a raised force-update minimum, a region losing coverage, or the same version rebuilt.",
+  "homepage": "https://github.com/DanielErikssonCoder/omarchy-ps5-firmware",
+  "repository": "https://github.com/DanielErikssonCoder/omarchy-ps5-firmware",
+  "keywords": [
+    "playstation",
+    "ps5",
+    "firmware",
+    "monitor",
+    "notifications"
+  ],
+  "kinds": [
+    "bar-widget",
+    "service"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "service": "Service.qml"
+  },
+  "keepLoaded": true,
+  "barWidget": {
+    "displayName": "PS5 Firmware",
+    "description": "PS5 firmware status. Left click: firmware panel. Middle click: check now.",
+    "category": "Status",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "refreshMinutes": 30,
+      "region": "GLOBAL",
+      "myVersion": "",
+      "notifyOnChange": true,
+      "notifyOnSourceDown": true
+    },
+    "schema": [
+      {
+        "key": "refreshMinutes",
+        "type": "integer",
+        "label": "Check interval (minutes)",
+        "min": 5,
+        "max": 360,
+        "step": 5,
+        "defaultValue": 30,
+        "description": "How often the upstream manifest is read. The public API caches its own answers for 30 minutes, so checking faster than that mostly repeats the same numbers."
+      },
+      {
+        "key": "region",
+        "type": "enum",
+        "label": "Region on the bar",
+        "options": [
+          "GLOBAL",
+          "US",
+          "JP",
+          "UK",
+          "AU",
+          "SA",
+          "RU",
+          "CN",
+          "BR",
+          "EU",
+          "KR",
+          "MX",
+          "TW",
+          "HK"
+        ],
+        "defaultValue": "GLOBAL",
+        "description": "GLOBAL reports the agreed figure across every region that answers. Picking a single region shows only that manifest. EU, KR, MX, TW and HK have no directly readable manifest of their own, so they are reported as an estimate."
+      },
+      {
+        "key": "myVersion",
+        "type": "string",
+        "label": "Your firmware",
+        "defaultValue": "",
+        "description": "The version your console runs, for example 13.60. Leave it empty and the panel simply asks instead of answering."
+      },
+      {
+        "key": "notifyOnChange",
+        "type": "boolean",
+        "label": "Notify when firmware changes",
+        "defaultValue": true,
+        "description": "One notification, updated in place, when the latest version, the minimum, a region's coverage or the build changes."
+      },
+      {
+        "key": "notifyOnSourceDown",
+        "type": "boolean",
+        "label": "Notify when the source stops answering",
+        "defaultValue": true,
+        "description": "Only after four checks in a row fail, never on a single hiccup."
+      }
+    ]
+  },
+  "service": {
+    "displayName": "PS5 Firmware watcher",
+    "description": "Polls the PlayStation 5 firmware manifest and writes what it sees to the plugin's state directory.",
+    "category": "Status",
+    "allowMultiple": false
+  }
+}

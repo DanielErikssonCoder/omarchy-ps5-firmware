@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+# ps5-firmware: the headless half of the Omarchy plugin.
+#
+# One run reads the current PlayStation 5 firmware manifest, compares it with
+# the previous reading, and writes the result to the plugin's state file. The
+# bar widget, the panel and this command all read that one file, so there is
+# exactly one implementation of every rule and one place where a bug can hide.
+#
+# A run always exits 0 when the source is unreachable: a monitor that cannot
+# reach its source must record that fact, not crash the thing that called it.
+# Exit 2 is a usage error, exit 3 is an internal error (a bug worth reporting).
+#
+# Dependencies: bash, jq, coreutils (flock) and curl. jq is a declared
+# dependency of the Omarchy package; curl is present on any Omarchy install.
+set -euo pipefail
+
+PLUGIN_ID="io.github.danielerikssoncoder.ps5-firmware"
+DEFAULT_SOURCE="https://psn.etawen.lol/api/manifest"
+SOURCE_TIMEOUT=20
+
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+PLUGIN_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
+LIB_DIR="$PLUGIN_DIR/lib"
+
+STATE_HOME=${XDG_STATE_HOME:-$HOME/.local/state}
+STATE_PATH="$STATE_HOME/omarchy/plugins/$PLUGIN_ID/state.json"
+
+SOURCE="$DEFAULT_SOURCE"
+REGION=""
+REGION_FROM_SETTING=false
+MODE="once"
+OUTPUT="text"
+SOURCE_DOWN_NOTIFY=true
+THRESHOLD=4
+NOW_OVERRIDE=""
+IF_STALE=0
+NOTIFY=true
+NOTIFY_SEND=${PS5_NOTIFY_SEND:-omarchy-notification-send}
+NOTIFY_APP="PS5 firmware"
+
+SHELL_CONFIG=${XDG_CONFIG_HOME:-$HOME/.config}/omarchy/shell.json
+
+# The plugin's own settings live inline in shell.json, in whichever section the
+# widget was placed. Reading them here means a terminal run behaves like the one
+# the shell makes, instead of quietly using different values.
+shell_setting() {
+  local key=$1 fallback=$2 value=""
+  if [[ -f $SHELL_CONFIG ]]; then
+    value=$(jq -r --arg id "$PLUGIN_ID" --arg k "$key" '
+      [ (.bar.layout // {}) | to_entries[] | .value[]
+        | select(type == "object" and .id == $id) | .[$k] ]
+      | map(select(. != null)) | first // empty
+    ' "$SHELL_CONFIG" 2>/dev/null || true)
+  fi
+  if [[ -n $value ]]; then printf '%s' "$value"; else printf '%s' "$fallback"; fi
+}
+
+usage() {
+  cat >&2 <<'USAGE'
+Usage: ps5-firmware [--once | --print] [options]
+
+  --once                     read the manifest, compare it, write the state file (default)
+  --print                    print the state file as it stands, without touching the network
+  --source <url|file>        where to read the manifest from (default: the public API)
+  --state <path>             state file to read and write
+  --region <GLOBAL|code>     which scope the watched values and the notification follow
+                             (default: the plugin's `region` setting in shell.json, else GLOBAL)
+  --if-stale <seconds>       skip the check entirely when the state file is newer than this
+  --now <iso8601>            timestamp to record instead of the current one (tests, backfills)
+  --no-source-down-notify    never report an unreachable source
+  --no-notify                record what changed but send nothing to the desktop
+                             (the state file still records what would have been sent)
+  --json                     with --once, print the whole state file instead of a summary
+  --quiet                    print nothing on success
+  -h, --help                 this text
+
+Exit codes: 0 ran (source reachable or not), 2 bad usage, 3 internal error.
+USAGE
+}
+
+while (($# > 0)); do
+  case $1 in
+  --once) MODE="once" ;;
+  --print) MODE="print" ;;
+  --source) SOURCE=${2:?--source needs a value}; shift ;;
+  --state) STATE_PATH=${2:?--state needs a path}; shift ;;
+  --region) REGION=${2:?--region needs a value}; shift ;;
+  --if-stale) IF_STALE=${2:?--if-stale needs a value}; shift ;;
+  --now) NOW_OVERRIDE=${2:?--now needs a value}; shift ;;
+  --no-source-down-notify) SOURCE_DOWN_NOTIFY=false ;;
+  --no-notify) NOTIFY=false ;;
+  --json) OUTPUT="json" ;;
+  --quiet) OUTPUT="quiet" ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  *)
+    echo "ps5-firmware: unknown argument: $1" >&2
+    usage
+    exit 2
+    ;;
+  esac
+  shift
+done
+
+if [[ ! $IF_STALE =~ ^[0-9]+$ ]]; then
+  echo "ps5-firmware: --if-stale needs a number of seconds, got: $IF_STALE" >&2
+  exit 2
+fi
+
+[[ -n $REGION ]] || REGION=$(shell_setting region GLOBAL)
+
+if [[ ! $REGION =~ ^(GLOBAL|[A-Za-z]{2})$ ]]; then
+  echo "ps5-firmware: --region must be GLOBAL or a two-letter region code, got: $REGION" >&2
+  exit 2
+fi
+
+mkdir -p "$(dirname -- "$STATE_PATH")"
+
+if [[ $MODE == "print" ]]; then
+  if [[ -f $STATE_PATH ]]; then
+    jq . "$STATE_PATH"
+  else
+    echo "ps5-firmware: no state file yet at $STATE_PATH" >&2
+    exit 2
+  fi
+  exit 0
+fi
+
+# A shell restart is not a reason to ask again. The API caches its own answers
+# for 30 minutes, and this machine restarts the shell on every theme change, so
+# a state file that is still fresh is used as it stands.
+if ((IF_STALE > 0)); then
+  last=$(jq -r '.takenAt // empty' "$STATE_PATH" 2>/dev/null || true)
+  if [[ -n $last ]]; then
+    last_epoch=$(date -d "$last" +%s 2>/dev/null || echo 0)
+    now_epoch=$(date +%s)
+    if ((now_epoch - last_epoch < IF_STALE)); then
+      [[ $OUTPUT == "quiet" ]] || echo "ps5-firmware: checked $((now_epoch - last_epoch))s ago, still fresh"
+      exit 0
+    fi
+  fi
+fi
+
+# One run at a time. A shell reload while a check is in flight would otherwise
+# let two runs race for the same state file.
+LOCK_PATH="$(dirname -- "$STATE_PATH")/.lock"
+exec 9>"$LOCK_PATH"
+if ! flock -n 9; then
+  [[ $OUTPUT == "quiet" ]] || echo "ps5-firmware: another check is already running" >&2
+  exit 0
+fi
+
+TMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TMP_DIR"' EXIT
+
+# jq gets its definitions and the program as one file: no module path, no
+# installed jq layout to depend on.
+compose() {
+  cat "$LIB_DIR/core.jq" "$LIB_DIR/$1" >"$TMP_DIR/$1"
+  printf '%s' "$TMP_DIR/$1"
+}
+
+fetch() {
+  if [[ $SOURCE =~ ^https?:// ]]; then
+    curl --silent --show-error --location --max-time "$SOURCE_TIMEOUT" \
+      --fail --output "$TMP_DIR/manifest.json" "$SOURCE" 2>"$TMP_DIR/curl.err"
+  else
+    cp -- "$SOURCE" "$TMP_DIR/manifest.json" 2>"$TMP_DIR/curl.err"
+  fi
+}
+
+# The previous state, or a file holding null when there is none. merge.jq and
+# failure.jq both take it the same way, so neither has to know about first runs.
+PREV_FILE="$TMP_DIR/prev.json"
+if [[ -f $STATE_PATH ]] && jq -e . "$STATE_PATH" >/dev/null 2>&1; then
+  cp -- "$STATE_PATH" "$PREV_FILE"
+else
+  echo null >"$PREV_FILE"
+fi
+
+NOW=${NOW_OVERRIDE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
+
+write_state() {
+  # Atomic: a reader watching the file sees the old one or the new one, never a
+  # half-written one.
+  mv -- "$1" "$STATE_PATH.tmp"
+  mv -- "$STATE_PATH.tmp" "$STATE_PATH"
+}
+
+# ---- telling him ------------------------------------------------------------
+#
+# One toast, updated in place. `notify` in the state file is what we WANT to
+# say; `notified.key` is what we HAVE said. Those are deliberately not the same
+# step: a toast that never reached the screen (no desktop session, the daemon
+# restarting) has to stay pending so the next run tries again, instead of the
+# news being swallowed as if it had been delivered. `notified` is therefore
+# marked here, after a send that returned an id, and not in the jq comparison.
+deliver_notification() {
+  [[ $NOTIFY == true ]] || return 0
+
+  local key
+  key=$(jq -r '.notify.key // empty' "$STATE_PATH")
+  [[ -n $key ]] || return 0
+  [[ $(jq -r '.notified.key // empty' "$STATE_PATH") == "$key" ]] && return 0
+
+  local headline body urgency
+  headline=$(jq -r '.notify.headline' "$STATE_PATH")
+  body=$(jq -r '.notify.body // ""' "$STATE_PATH")
+  urgency=$(jq -r '.notify.urgency // "low"' "$STATE_PATH")
+
+  # The bubble we are keeping. The id lives next to the state file, so clearing
+  # the plugin's state also clears it and the next change opens a fresh toast
+  # rather than replacing one that is long gone.
+  local id_file previous new_id
+  id_file="$(dirname -- "$STATE_PATH")/notify.id"
+  previous=""
+  if [[ -f $id_file ]]; then previous=$(<"$id_file"); fi
+
+  local replace=()
+  [[ -n $previous ]] && replace=(-r "$previous")
+
+  # -p prints the id the daemon used, also when replacing, so the next change
+  # lands in the same bubble even if the id moved.
+  local out rc=0
+  out=$("$NOTIFY_SEND" --app-name "$NOTIFY_APP" -u "$urgency" -p "${replace[@]}" \
+        "$headline" "$body" 2>&1) || rc=$?
+
+  if ((rc != 0)); then
+    local reason=${out%%$'\n'*}
+    jq --arg at "$NOW" --arg error "$reason" \
+      '.notifyError = {at: $at, error: $error}' "$STATE_PATH" >"$TMP_DIR/state.json"
+    write_state "$TMP_DIR/state.json"
+    [[ $OUTPUT == "quiet" ]] || echo "ps5-firmware: could not show the notification: $reason" >&2
+    return 0
+  fi
+
+  new_id=${out##* }
+  if [[ $new_id =~ ^[0-9]+$ ]]; then printf '%s\n' "$new_id" >"$id_file"; fi
+
+  jq --arg key "$key" --arg at "$NOW" \
+    '.notified = {key: $key, at: $at} | .notifyError = null' \
+    "$STATE_PATH" >"$TMP_DIR/state.json"
+  write_state "$TMP_DIR/state.json"
+  [[ $OUTPUT == "quiet" ]] || echo "ps5-firmware: announced: $headline"
+  return 0
+}
+
+if fetch && jq -e . "$TMP_DIR/manifest.json" >/dev/null 2>&1; then
+  SHAPE_PROG=$(compose shape.jq)
+  jq -f "$SHAPE_PROG" "$TMP_DIR/manifest.json" >"$TMP_DIR/reading.json"
+
+  MERGE_PROG=$(compose merge.jq)
+  if ! jq --slurpfile prev "$PREV_FILE" --arg now "$NOW" --arg region "$REGION" \
+    -f "$MERGE_PROG" "$TMP_DIR/reading.json" >"$TMP_DIR/state.json"; then
+    echo "ps5-firmware: internal error while merging the reading (please report this)" >&2
+    exit 3
+  fi
+  write_state "$TMP_DIR/state.json"
+else
+  REASON="cannot read $SOURCE"
+  if [[ -s $TMP_DIR/curl.err ]]; then
+    REASON="$REASON: $(head -1 "$TMP_DIR/curl.err")"
+  elif [[ -f $TMP_DIR/manifest.json ]]; then
+    REASON="$REASON: the reply was not JSON"
+  fi
+
+  FAIL_PROG=$(compose failure.jq)
+  if ! jq --slurpfile prev "$PREV_FILE" --arg now "$NOW" --arg reason "$REASON" \
+    --argjson threshold "$THRESHOLD" --argjson notifyAllowed "$SOURCE_DOWN_NOTIFY" \
+    -f "$FAIL_PROG" "$PREV_FILE" >"$TMP_DIR/state.json"; then
+    echo "ps5-firmware: internal error while recording a source failure (please report this)" >&2
+    exit 3
+  fi
+  write_state "$TMP_DIR/state.json"
+  [[ $OUTPUT == "quiet" ]] || echo "ps5-firmware: $REASON" >&2
+fi
+
+# After the state is on disk, not before: the send is the last step, and what it
+# does is recorded back into the same file (see deliver_notification).
+deliver_notification
+
+case $OUTPUT in
+json)
+  jq . "$STATE_PATH"
+  ;;
+quiet) ;;
+*)
+  jq -r '
+    (.view // {}) as $v
+    | "PS5 firmware: source " + (if .sourceOk then "ok" else "unreachable" end)
+      + " (" + (.reading.source.health // "unknown") + ")"
+      + (if .sourceOk then "" else " · " + (.failsInARow | tostring) + " in a row" end)
+    , "  " + (.region) + ": latest " + ($v.latest // "?") + " · minimum " + ($v.minimum // "?")
+      + " · " + ($v.status // "?")
+    , "  latest unchanged since " + (.baseline.latest.since // "?")
+      + " · minimum since " + (.baseline.minimum.since // "?")
+    , "  changes this run: " + (if ((.events // []) | length) == 0 then "none"
+                                else ([.events[] | .scope + "." + .kind] | join(", ")) end)
+    , "  next notification: " + (if .notify == null then "none" else .notify.headline end)
+  ' "$STATE_PATH"
+  ;;
+esac
