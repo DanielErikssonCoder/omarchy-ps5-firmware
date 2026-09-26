@@ -17,6 +17,12 @@ set -euo pipefail
 PLUGIN_ID="io.github.danielerikssoncoder.ps5-firmware"
 DEFAULT_SOURCE="https://psn.etawen.lol/api/manifest"
 SOURCE_TIMEOUT=20
+# What one reply is allowed to cost. The manifest is about 2 kB today, so 1 MiB
+# leaves room to grow by a factor of 500 and is still nowhere near filling a
+# disk. This is a limit on bytes written, not on time: the source declares no
+# Content-Length, so a timeout alone would still let a fast server write
+# gigabytes before it fires.
+SOURCE_MAX_BYTES=1048576
 
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 PLUGIN_DIR=$(cd -- "$SCRIPT_DIR/.." && pwd)
@@ -163,12 +169,34 @@ compose() {
 }
 
 fetch() {
+  local status size
   if [[ $SOURCE =~ ^https?:// ]]; then
+    # --max-filesize refuses a reply that declares itself too large; the cut
+    # through head caps the file on disk at the limit when the size is not known
+    # until it arrives; and --speed-limit/--speed-time drop a connection that
+    # trickles (under 1 kB/s for 30 s), so a stream that never ends cannot hold
+    # the run either.
     curl --silent --show-error --location --max-time "$SOURCE_TIMEOUT" \
-      --fail --output "$TMP_DIR/manifest.json" "$SOURCE" 2>"$TMP_DIR/curl.err"
+      --max-filesize "$SOURCE_MAX_BYTES" --speed-limit 1024 --speed-time 30 \
+      --fail "$SOURCE" 2>"$TMP_DIR/curl.err" \
+      | head -c "$((SOURCE_MAX_BYTES + 1))" >"$TMP_DIR/manifest.json"
+    status=${PIPESTATUS[0]}
   else
     cp -- "$SOURCE" "$TMP_DIR/manifest.json" 2>"$TMP_DIR/curl.err"
+    status=$?
   fi
+
+  # One size rule for both paths: a source that is too large is refused whether
+  # it arrived over the network or from a file on this machine, and the reason a
+  # reader sees is ours rather than whichever message the tool happened to print.
+  # curl's exit 63 is its own "maximum file size exceeded", which happens before
+  # the file can pass the limit, so it belongs to the same answer.
+  size=$(wc -c <"$TMP_DIR/manifest.json" 2>/dev/null || echo 0)
+  if ((size > SOURCE_MAX_BYTES)) || [[ $status == 63 ]]; then
+    echo "the reply is larger than $SOURCE_MAX_BYTES bytes" >"$TMP_DIR/curl.err"
+    return 1
+  fi
+  return "$status"
 }
 
 # The previous state, or a file holding null when there is none. merge.jq and

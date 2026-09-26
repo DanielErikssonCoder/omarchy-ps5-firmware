@@ -43,7 +43,8 @@ To run a clone you already have, copy the folder into `~/.config/omarchy/plugins
 `omarchy-shell shell rescanPlugins`.
 
 The first reading lands a few seconds after the shell starts. Nothing is fetched while the bar draws: the
-helper script owns the network and the widget only ever reads a file.
+helper script owns the network and the widget only ever reads a file. One reply is capped at 1 MiB, so a source
+that sends more than that, or never stops sending, is refused with the reason recorded and the last reading kept.
 
 ## Removal
 

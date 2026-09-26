@@ -4,6 +4,14 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A reply from the source is capped at 1 MiB. A reply that announces more than that, sends more than that, or
+  never stops sending is refused, and the reason is recorded in the state file. Raised by the marketplace
+  review: the source announces no size, so a timeout alone left the disk unprotected.
+
 ## [1.0.0] - 2026-09-25
 
 ### Added

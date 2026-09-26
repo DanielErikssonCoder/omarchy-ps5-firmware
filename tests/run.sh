@@ -232,6 +232,43 @@ XDG_CONFIG_HOME="$WORK/xdg" "$CLI" --once --quiet --json --state "$S" --now 2026
   --source "$BASE" --region GLOBAL >/dev/null 2>&1
 assert "an explicit --region still wins" '.region == "GLOBAL"' "$S"
 
+# A reply may cost at most 1 MiB, and that is a limit on bytes written rather
+# than on time: this source announces no size, so without a cap a fast server
+# could fill the disk long before a 20 second timeout fires. Raised by the
+# marketplace review, which is why all three routes are covered here.
+echo "a reply that is too large"
+S="$WORK/s/state.json"
+run "$S" 2026-09-25T10:00:00Z "$BASE"
+head -c 2097152 /dev/zero >"$WORK/huge.json"
+run "$S" 2026-09-25T10:30:00Z "$WORK/huge.json"
+assert "a local source past the limit is refused" '.sourceOk == false and .failsInARow == 1' "$S"
+assert "the reason names the limit" '.lastError | test("larger than 1048576 bytes")' "$S"
+assert "the last good reading survives a refused reply" '.view.latest == "14.00"' "$S"
+
+if command -v python3 >/dev/null 2>&1; then
+  python3 "$TESTS_DIR/support/huge-server.py" "$WORK/port" >/dev/null 2>&1 &
+  SERVER_PID=$!
+  for _ in $(seq 60); do [[ -s $WORK/port ]] && break; sleep 0.1; done
+  PORT=$(cat "$WORK/port" 2>/dev/null || true)
+  if [[ -n $PORT ]]; then
+    run "$S" 2026-09-25T10:31:00Z "http://127.0.0.1:$PORT/declared"
+    assert "a reply that announces 512 MiB is refused" \
+      '.lastError | test("larger than 1048576 bytes")' "$S"
+    run "$S" 2026-09-25T10:32:00Z "http://127.0.0.1:$PORT/stream"
+    assert "a reply that announces no size is cut at the limit" \
+      '.lastError | test("larger than 1048576 bytes")' "$S"
+    run "$S" 2026-09-25T10:33:00Z "$BASE"
+    assert "a good reply after a refused one clears the failure" \
+      '.sourceOk == true and .failsInARow == 0' "$S"
+  else
+    printf '  skip  the HTTP size cases (the stand-in server did not start)\n'
+  fi
+  kill "$SERVER_PID" 2>/dev/null
+  wait "$SERVER_PID" 2>/dev/null
+else
+  printf '  skip  the HTTP size cases (python3 is not installed)\n'
+fi
+
 echo "the interface"
 S="$WORK/f/state.json"
 run "$S" 2026-09-25T10:00:00Z "$BASE"
