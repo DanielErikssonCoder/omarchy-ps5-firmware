@@ -17,9 +17,9 @@ set -euo pipefail
 PLUGIN_ID="io.github.danielerikssoncoder.ps5-firmware"
 DEFAULT_SOURCE="https://psn.etawen.lol/api/manifest"
 SOURCE_TIMEOUT=20
-# What one reply is allowed to cost. The manifest is about 2 kB today, so 1 MiB
-# leaves room to grow by a factor of 500 and is still nowhere near filling a
-# disk. This is a limit on bytes written, not on time: the source declares no
+# What one reply is allowed to cost. The manifest is about 47 kB today, so 1 MiB
+# leaves room for it to grow by a factor of 20 and is still nowhere near filling
+# a disk. This is a limit on bytes written, not on time: the source declares no
 # Content-Length, so a timeout alone would still let a fast server write
 # gigabytes before it fires.
 SOURCE_MAX_BYTES=1048576
