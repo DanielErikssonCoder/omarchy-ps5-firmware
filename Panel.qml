@@ -339,6 +339,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width - ageLabel.width - parent.spacing
             text: "PS5 firmware"
             color: root.ink
@@ -349,6 +350,7 @@ Panel {
           }
 
           Text {
+            textFormat: Text.PlainText
             id: ageLabel
             anchors.verticalCenter: parent.verticalCenter
             visible: root.hasReading
@@ -361,6 +363,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: !root.hasReading
           text: root.sourceDown
@@ -374,6 +377,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading
           text: root.hasReading
@@ -386,6 +390,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading
           text: {
@@ -405,6 +410,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading
           text: {
@@ -422,6 +428,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.sourceDown
           text: (root.state && root.state.lastError)
@@ -441,6 +448,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width - versionField.width - parent.spacing
             anchors.verticalCenter: parent.verticalCenter
             text: "Your firmware"
@@ -468,6 +476,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           text: root.answer.text
           color: root.answerColor
@@ -478,6 +487,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.saveNotice !== ""
           text: root.saveNotice
@@ -489,6 +499,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading && root.scopeCode !== "GLOBAL"
           text: "Compared against " + root.scopeCode + " only. GLOBAL agrees across the regions that answer."
@@ -503,6 +514,7 @@ Panel {
 
         // ---- region matrix -------------------------------------------------
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.rows.length > 0
           text: "Regions"
@@ -526,6 +538,7 @@ Panel {
               spacing: Style.space(8)
 
               Text {
+                textFormat: Text.PlainText
                 width: Style.space(56)
                 text: modelData.code
                 color: root.ink
@@ -537,6 +550,7 @@ Panel {
               }
 
               Text {
+                textFormat: Text.PlainText
                 width: Style.space(96)
                 text: modelData.live
                   ? modelData.latest + " / " + modelData.minimum
@@ -548,6 +562,7 @@ Panel {
               }
 
               Text {
+                textFormat: Text.PlainText
                 width: parent.width - Style.space(56) - Style.space(96) - parent.spacing * 2
                 text: modelData.status
                 color: root.ink
@@ -561,6 +576,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.rows.length > 0
           text: "Rows marked \"no manifest\" publish nothing we can read directly, so they show no numbers. "
@@ -581,6 +597,7 @@ Panel {
           spacing: Style.space(8)
 
           Text {
+            textFormat: Text.PlainText
             width: parent.width - checkButton.width - parent.spacing
             anchors.verticalCenter: parent.verticalCenter
             visible: root.hasReading
@@ -621,6 +638,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading && root.view && root.view.size > 0
           text: root.hasReading
@@ -635,6 +653,7 @@ Panel {
         // A toast that never reached the screen is worth saying out loud: the
         // reading is still there, but whatever changed is not on his screen.
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: !!(root.state && root.state.notifyError)
           text: (root.state && root.state.notifyError)
@@ -647,6 +666,7 @@ Panel {
         }
 
         Text {
+          textFormat: Text.PlainText
           width: parent.width
           text: "Data: psn.etawen.lol. Unofficial, not affiliated with Sony."
           color: root.ink

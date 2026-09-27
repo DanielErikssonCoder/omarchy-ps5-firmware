@@ -269,6 +269,24 @@ else
   printf '  skip  the HTTP size cases (python3 is not installed)\n'
 fi
 
+# Qt's default textFormat is AutoText, which reads a string as HTML. The panel
+# renders strings that come from the source, so a manifest carrying
+# <img src="http://..."> would make the panel try to fetch that URL. Every Text
+# element therefore states PlainText, and this case keeps it that way: measured
+# with qml6 against a local listener, AutoText (and the default) requested the
+# URL while PlainText did not.
+echo "text from the source is never read as markup"
+for f in "$PLUGIN_DIR"/*.qml; do
+  total=$(grep -o -e 'Text {' -e 'Label {' "$f" | wc -l | tr -d ' ')
+  plain=$(grep -c 'textFormat: Text.PlainText' "$f" || true)
+  if [[ $total == "$plain" ]]; then
+    ok "$(basename "$f"): all $total text elements are plain text"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n        %s text elements, %s set PlainText\n' "$(basename "$f")" "$total" "$plain"
+  fi
+done
+
 echo "the interface"
 S="$WORK/f/state.json"
 run "$S" 2026-09-25T10:00:00Z "$BASE"
