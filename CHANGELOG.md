@@ -11,9 +11,9 @@ All notable changes to this project are recorded here. The format follows
 - A Copy button beside the download link, and Ctrl+C or Super+C while the panel is open. A selection made by
   hand wins over the whole link. The link goes to `wl-copy` as an argument through the shell's own argv runner,
   so a link that contains shell metacharacters is copied as data and never interpreted.
-- Nine new test cases: six for the reply size cap (a local file past the limit, a reply that announces 512 MiB,
-  a reply that announces nothing and streams 16 MiB, and the recovery afterwards) and three for the copy path.
-  The suite is 66 cases and still runs in about a second.
+- The test suite grew from 54 to 68 cases and still runs in about a second: six for the reply size cap (a local
+  file past the limit, a reply that announces 512 MiB, a reply that announces nothing and streams 16 MiB, and the
+  recovery afterwards), three for the plain-text labels, and five for the copy path.
 
 ### Fixed
 
