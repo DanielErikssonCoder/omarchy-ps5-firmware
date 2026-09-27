@@ -287,6 +287,53 @@ for f in "$PLUGIN_DIR"/*.qml; do
   fi
 done
 
+# The download link comes from the manifest, so it can contain anything. The copy
+# path therefore hands it to wl-copy as one argument through the shell's own argv
+# runner (`exec "$@"`) instead of building a shell string, where quoting could be
+# got wrong. The behavioural half below runs that same shape with a hostile link
+# and checks it arrives untouched.
+echo "a copied link is data, not a command"
+if grep -q 'Util.execArgv(\["wl-copy", "--", value\])' "$PLUGIN_DIR/Panel.qml"; then
+  ok "the link is handed to wl-copy as an argument, not through a shell"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the copy path no longer uses Util.execArgv for the link"
+fi
+if grep -q 'sequence: "Ctrl+C"' "$PLUGIN_DIR/Panel.qml" \
+   && grep -q 'onActivated: root.copyLink()' "$PLUGIN_DIR/Panel.qml"; then
+  ok "a window level Ctrl+C shortcut copies the link"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the copy shortcut is gone or no longer calls copyLink"
+fi
+# It has to sit inside the key catcher: KeyboardPanel only takes visual children,
+# so a Shortcut in the panel body makes the whole panel fail to load.
+catcher_line=$(grep -n 'PanelKeyCatcher {' "$PLUGIN_DIR/Panel.qml" | head -1 | cut -d: -f1)
+shortcut_line=$(grep -n 'Shortcut {' "$PLUGIN_DIR/Panel.qml" | head -1 | cut -d: -f1)
+if [[ -n $catcher_line && -n $shortcut_line && $shortcut_line -gt $catcher_line ]]; then
+  ok "the shortcut sits inside the key catcher"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the shortcut is outside the key catcher, which breaks the panel"
+fi
+# Super+C needs no handling of its own: Omarchy binds it to Universal copy, which
+# injects a CTRL+C into the focused surface. The version field keeps its own Ctrl+C.
+if grep -q 'enabled: root.opened && !versionField.activeFocus' "$PLUGIN_DIR/Panel.qml"; then
+  ok "the shortcut stands down while the version field is edited"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the copy shortcut also steals Ctrl+C from the version field"
+fi
+
+hostile='https://example.com/x/$(whoami);`uname`;"q"'"'"'e&|>'
+got=$(bash -lc 'exec "$@"' bash printf '%s' "$hostile")
+if [[ $got == "$hostile" ]]; then
+  ok "a hostile link survives the argv route byte for byte"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n        wanted %s\n        got    %s\n' "a hostile link survives the argv route byte for byte" "$hostile" "$got"
+fi
+
 echo "the interface"
 S="$WORK/f/state.json"
 run "$S" 2026-09-25T10:00:00Z "$BASE"

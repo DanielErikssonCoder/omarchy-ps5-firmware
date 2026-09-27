@@ -4,15 +4,27 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-09-27
+
+### Added
+
+- A Copy button beside the download link, and Ctrl+C or Super+C while the panel is open. A selection made by
+  hand wins over the whole link. The link goes to `wl-copy` as an argument through the shell's own argv runner,
+  so a link that contains shell metacharacters is copied as data and never interpreted.
+- Nine new test cases: six for the reply size cap (a local file past the limit, a reply that announces 512 MiB,
+  a reply that announces nothing and streams 16 MiB, and the recovery afterwards) and three for the copy path.
+  The suite is 66 cases and still runs in about a second.
 
 ### Fixed
 
 - A reply from the source is capped at 1 MiB. A reply that announces more than that, sends more than that, or
   never stops sending is refused, and the reason is recorded in the state file. Raised by the marketplace
   review: the source announces no size, so a timeout alone left the disk unprotected.
+- The panel reads every string that comes from the manifest as plain text (`textFormat: Text.PlainText`). Qt's
+  default is `AutoText`, which interprets a string as HTML, so a version or build label carrying an image tag
+  could have made the panel fetch a URL of the manifest's choosing. Also raised by the marketplace review.
 
-## [1.0.0] - 2026-09-25
+## [0.1.0] - 2026-09-25
 
 ### Added
 
@@ -33,4 +45,5 @@ All notable changes to this project are recorded here. The format follows
 - A test suite of 54 cases that runs offline against a recorded API reply and four variants that change one
   thing each, with a stand-in for the notification tool so the suite never touches the desktop it runs on.
 
-[1.0.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v1.0.0
+[0.2.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.2.0
+[0.1.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.1.0

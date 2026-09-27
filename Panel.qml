@@ -97,6 +97,10 @@ Panel {
   property string versionText: ""
   property string saveNotice: ""
   property string pendingSave: ""
+  property string copyNotice: ""
+
+  // The download link the source published, or empty when there is no reading.
+  readonly property string linkText: root.view && root.view.pupUrl ? root.view.pupUrl : ""
 
   function syncFromSettings() {
     if (!versionField.activeFocus) root.versionText = root.savedVersion
@@ -253,6 +257,20 @@ Panel {
     if (root.hostWidget && root.hostWidget.checkNow) root.hostWidget.checkNow()
   }
 
+  // Copying goes through the shell's own argv runner instead of a shell string.
+  // The link comes from the manifest, so it can contain anything at all, and
+  // `exec "$@"` hands it over as one literal argument where bash quoting could
+  // be got wrong. wl-copy is also what the rest of the desktop uses, so the
+  // copied link lands in the shell's own clipboard history. An explicit
+  // selection wins over the whole link: that is what a selection is for.
+  function copyLink() {
+    var value = urlField.selectedText ? urlField.selectedText : root.linkText
+    if (!value) return
+    Util.execArgv(["wl-copy", "--", value])
+    root.copyNotice = "Link copied to the clipboard."
+    copyNoticeTimer.restart()
+  }
+
   function open() {
     root.controller.show()
     stateFile.reload()
@@ -313,6 +331,15 @@ Panel {
     }
   }
 
+  // Long enough to read, short enough that the line is gone before it looks
+  // like part of the panel.
+  Timer {
+    id: copyNoticeTimer
+    interval: 2500
+    repeat: false
+    onTriggered: root.copyNotice = ""
+  }
+
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -327,6 +354,19 @@ Panel {
       id: keyCatcher
       anchors.fill: parent
       onCloseRequested: root.close()
+
+      // Ctrl+C and Super+C. Omarchy binds SUPER+C to "Universal copy", which injects a
+      // CTRL+C into the focused surface, so this one shortcut answers to both keys.
+      // It sits inside the key catcher rather than in the panel body, because the
+      // panel body only takes visual children, and it is a window level shortcut
+      // rather than a bubbling Keys handler because a focused child (the version
+      // field) swallows the key on its way up. While that field is being edited the
+      // shortcut stands down and Ctrl+C belongs to it.
+      Shortcut {
+        sequence: "Ctrl+C"
+        enabled: root.opened && !versionField.activeFocus
+        onActivated: root.copyLink()
+      }
 
       Column {
         id: content
@@ -622,19 +662,67 @@ Panel {
         }
 
         // Selectable on purpose: the point of showing the URL is that a person
-        // can copy it out. A plain Text would look the same and copy nothing.
-        TextEdit {
+        // can take it with them. A plain Text would look the same and copy
+        // nothing, and a TextEdit on its own needs a careful drag, so there is
+        // a button beside it and the copy keys work while the panel is open.
+        Row {
+          width: parent.width
+          spacing: Style.space(8)
+          visible: root.hasReading
+
+          TextEdit {
+            id: urlField
+            width: parent.width - copyButton.width - parent.spacing
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.linkText
+            color: root.ink
+            opacity: 0.65
+            font.family: root.family
+            font.pixelSize: Style.font.caption
+            wrapMode: TextEdit.WrapAnywhere
+            readOnly: true
+            selectByMouse: true
+            // Deliberate: taking focus here would hand Escape and the arrows
+            // to a text editor, and the panel's own keys would stop arriving.
+            activeFocusOnPress: false
+          }
+
+          Button {
+            id: copyButton
+            text: "Copy"
+            foreground: root.ink
+            accent: Color.accent
+            bordered: true
+            fontFamily: root.family
+            fontSize: Style.font.caption
+            horizontalPadding: Style.space(8)
+            verticalPadding: Style.space(3)
+            onClicked: root.copyLink()
+          }
+        }
+
+        Text {
+          textFormat: Text.PlainText
           width: parent.width
           visible: root.hasReading
-          text: root.view && root.view.pupUrl ? root.view.pupUrl : ""
+          text: "Copy takes the whole link. A selection you made by hand wins, "
+            + "and Ctrl+C or Super+C does the same while the panel is open."
           color: root.ink
-          opacity: 0.65
+          opacity: 0.5
           font.family: root.family
           font.pixelSize: Style.font.caption
-          wrapMode: TextEdit.WrapAnywhere
-          readOnly: true
-          selectByMouse: true
-          activeFocusOnPress: false
+          wrapMode: Text.WordWrap
+        }
+
+        Text {
+          textFormat: Text.PlainText
+          width: parent.width
+          visible: root.copyNotice !== ""
+          text: root.copyNotice
+          color: root.ink
+          opacity: 0.6
+          font.family: root.family
+          font.pixelSize: Style.font.caption
         }
 
         Text {

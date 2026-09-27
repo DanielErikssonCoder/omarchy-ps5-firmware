@@ -19,6 +19,8 @@ updated in place, so a monitor that runs for months does not leave a wall of toa
 - A panel with the latest and the minimum, the build hash and image size, how many regions answered, the full
   region matrix, the download link for the newest image, and a field where your own firmware version is
   compared against the minimum and the latest.
+- A Copy button beside that download link. A selection you made by hand wins over the whole link, and `Ctrl+C`
+  or `Super+C` copies it while the panel is open. The link reaches the clipboard as data, never as a command.
 
 ## Requirements
 
