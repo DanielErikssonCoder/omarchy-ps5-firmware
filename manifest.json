@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.danielerikssoncoder.ps5-firmware",
   "name": "PS5 Firmware",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "author": "Daniel Eriksson",
   "license": "MIT",
   "description": "Watches the PlayStation 5 firmware manifests and speaks up only when something actually changes: a new latest version, a raised force-update minimum, a region losing coverage, or the same version rebuilt.",

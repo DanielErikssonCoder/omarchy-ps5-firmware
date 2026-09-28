@@ -47,6 +47,9 @@ To run a clone you already have, copy the folder into `~/.config/omarchy/plugins
 The first reading lands a few seconds after the shell starts. Nothing is fetched while the bar draws: the
 helper script owns the network and the widget only ever reads a file. One reply is capped at 1 MiB, so a source
 that sends more than that, or never stops sending, is refused with the reason recorded and the last reading kept.
+A source that answers with a redirect is refused as well: the target of a redirect is chosen by whoever answers,
+and it can be a plain HTTP address on this machine or on the local network. Point the source at the final https
+address instead.
 
 ## Removal
 
@@ -128,10 +131,12 @@ record that, not crash the thing that called it. Exit 2 is a usage error and exi
 ./tests/run.sh
 ```
 
-54 cases, none of which need the network. `tests/fixtures/` holds a real API reply from 2026-09-25 plus four
+74 cases, none of which need the network. `tests/fixtures/` holds a real API reply from 2026-09-25 plus four
 variants that each change exactly one thing, so a failing test points at a single rule instead of at a pile of
 data. The suite never touches the desktop it runs on: every notification goes to a stand-in under
-`tests/support/` and the assertions are made against what would have been sent.
+`tests/support/` and the assertions are made against what would have been sent. Two stand-in sources cover the
+ways a reply can misbehave: one that sends far too much, and one that answers with a redirect and records every
+address it was asked for.
 
 ## Data source, credits and trademarks
 

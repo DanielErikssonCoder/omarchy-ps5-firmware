@@ -269,6 +269,52 @@ else
   printf '  skip  the HTTP size cases (python3 is not installed)\n'
 fi
 
+# A redirect is a hop out of the host the settings named, and its target is
+# chosen by whoever answers: a redirected check can be pointed at a plain HTTP
+# address on this machine or on the local network. The plugin therefore follows
+# none of them. Raised by the marketplace review, and the stand-in below records
+# every request it receives, so this asserts which addresses were contacted and
+# not only which flags curl was given.
+echo "a source that answers with a redirect"
+if command -v python3 >/dev/null 2>&1; then
+  : >"$WORK/redirect.log"
+  python3 "$TESTS_DIR/support/redirect-server.py" "$WORK/rport" "$BASE" "$WORK/redirect.log" \
+    >/dev/null 2>&1 &
+  RPID=$!
+  for _ in $(seq 60); do [[ -s $WORK/rport ]] && break; sleep 0.1; done
+  PORT=$(cat "$WORK/rport" 2>/dev/null || true)
+  if [[ -n $PORT ]]; then
+    S="$WORK/r/state.json"
+    run "$S" 2026-09-25T10:00:00Z "$BASE"
+    run "$S" 2026-09-25T10:30:00Z "http://127.0.0.1:$PORT/local"
+    assert "a redirect to a local http address is refused" \
+      '.sourceOk == false and .failsInARow == 1' "$S"
+    assert "the reason is ours and says what to do instead" \
+      '.lastError | test("answered with a redirect.*final https address")' "$S"
+    assert "the last good reading survives a refused redirect" '.view.latest == "14.00"' "$S"
+    contacted=$(tr '\n' ' ' <"$WORK/redirect.log")
+    if [[ $contacted == "/local " ]]; then
+      ok "the redirect target was never contacted"
+    else
+      fail=$((fail + 1))
+      printf '  FAIL  %s\n        paths requested: %s\n' \
+        "the redirect target was never contacted" "${contacted:-none}"
+    fi
+    run "$S" 2026-09-25T10:31:00Z "http://127.0.0.1:$PORT/elsewhere"
+    assert "a redirect to another host is refused too" \
+      '.lastError | test("answered with a redirect")' "$S"
+    run "$S" 2026-09-25T10:32:00Z "http://127.0.0.1:$PORT/manifest"
+    assert "a source that answers directly is still read" \
+      '.sourceOk == true and .failsInARow == 0 and .view.latest == "14.00"' "$S"
+  else
+    printf '  skip  the redirect cases (the stand-in server did not start)\n'
+  fi
+  kill "$RPID" 2>/dev/null
+  wait "$RPID" 2>/dev/null
+else
+  printf '  skip  the redirect cases (python3 is not installed)\n'
+fi
+
 # Qt's default textFormat is AutoText, which reads a string as HTML. The panel
 # renders strings that come from the source, so a manifest carrying
 # <img src="http://..."> would make the panel try to fetch that URL. Every Text

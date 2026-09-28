@@ -4,6 +4,21 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-09-28
+
+### Fixed
+
+- A source that answers with a redirect is refused instead of followed. A redirect target is chosen by
+  whoever answers, and it can be a plain HTTP address on this machine or on the local network, which is
+  never a source this plugin should talk to. Following none of them means exactly one host is contacted
+  per check, and the reason is recorded in the state file. Raised by the marketplace review.
+
+### Changed
+
+- The test suite grew from 68 to 74 cases: six for the redirect rule. Three of those assert on which
+  addresses a stand-in source was actually asked for, so the check is on what the plugin did rather than
+  on which flags it passed to `curl`.
+
 ## [0.2.0] - 2026-09-27
 
 ### Added
@@ -45,5 +60,6 @@ All notable changes to this project are recorded here. The format follows
 - A test suite of 54 cases that runs offline against a recorded API reply and four variants that change one
   thing each, with a stand-in for the notification tool so the suite never touches the desktop it runs on.
 
+[0.2.1]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.2.0
 [0.1.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.1.0

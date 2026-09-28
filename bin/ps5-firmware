@@ -176,9 +176,17 @@ fetch() {
     # until it arrives; and --speed-limit/--speed-time drop a connection that
     # trickles (under 1 kB/s for 30 s), so a stream that never ends cannot hold
     # the run either.
-    curl --silent --show-error --location --max-time "$SOURCE_TIMEOUT" \
-      --max-filesize "$SOURCE_MAX_BYTES" --speed-limit 1024 --speed-time 30 \
-      --fail "$SOURCE" 2>"$TMP_DIR/curl.err" \
+    #
+    # --location together with --max-redirs 0 is deliberate. A redirect is a hop
+    # whose target is chosen by whoever answers, and that target can be a plain
+    # HTTP address on this machine or on the local network, which is never a
+    # source this plugin should talk to. Following none of them means exactly one
+    # host is contacted, and a redirect becomes a recorded failure instead.
+    # Without --location at all, curl would hand back the redirect page as the
+    # reply and the run would look like a success.
+    curl --silent --show-error --location --max-redirs 0 \
+      --max-time "$SOURCE_TIMEOUT" --max-filesize "$SOURCE_MAX_BYTES" \
+      --speed-limit 1024 --speed-time 30 --fail "$SOURCE" 2>"$TMP_DIR/curl.err" \
       | head -c "$((SOURCE_MAX_BYTES + 1))" >"$TMP_DIR/manifest.json"
     status=${PIPESTATUS[0]}
   else
@@ -194,6 +202,15 @@ fetch() {
   size=$(wc -c <"$TMP_DIR/manifest.json" 2>/dev/null || echo 0)
   if ((size > SOURCE_MAX_BYTES)) || [[ $status == 63 ]]; then
     echo "the reply is larger than $SOURCE_MAX_BYTES bytes" >"$TMP_DIR/curl.err"
+    return 1
+  fi
+
+  # curl's exit 47 with --max-redirs 0 is "a redirect was refused". The reason a
+  # reader sees is ours, and it says what to do instead of only what happened.
+  if [[ $status == 47 ]]; then
+    echo "the source answered with a redirect, which is refused because the target can be a" \
+      "local or private address - set the source to the final https address instead" \
+      >"$TMP_DIR/curl.err"
     return 1
   fi
   return "$status"
