@@ -1,0 +1,19 @@
+{
+  "_comment": "The regions Sony publishes a list for, in the order the panel has always shown them. The names are the ones the readings have always carried. The title id is the PS5 system-software product key that every list URL contains.",
+  "titleId": "tJMRE80IbXnE9YuG0jzTXgKEjIMoabr6",
+  "regions": [
+    { "code": "us", "name": "North America" },
+    { "code": "jp", "name": "Japan" },
+    { "code": "eu", "name": "Europe, Middle East & Africa" },
+    { "code": "uk", "name": "UK & Ireland" },
+    { "code": "kr", "name": "South Korea" },
+    { "code": "mx", "name": "Latin America" },
+    { "code": "au", "name": "Oceania" },
+    { "code": "sa", "name": "Southeast Asia" },
+    { "code": "tw", "name": "Taiwan" },
+    { "code": "ru", "name": "Russia & India" },
+    { "code": "cn", "name": "China" },
+    { "code": "hk", "name": "Hong Kong" },
+    { "code": "br", "name": "Brazil" }
+  ]
+}

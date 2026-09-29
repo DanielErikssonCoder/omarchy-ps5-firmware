@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.danielerikssoncoder.ps5-firmware",
   "name": "PS5 Firmware",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "author": "Daniel Eriksson",
   "license": "MIT",
   "description": "Watches the PlayStation 5 firmware manifests and speaks up only when something actually changes: a new latest version, a raised force-update minimum, a region losing coverage, or the same version rebuilt.",
@@ -46,7 +46,7 @@
         "max": 360,
         "step": 5,
         "defaultValue": 30,
-        "description": "How often the upstream manifest is read. The public API caches its own answers for 30 minutes, so checking faster than that mostly repeats the same numbers."
+        "description": "How often Sony's regional lists are read. They carry no cache header, so a faster check costs requests without saying more."
       },
       {
         "key": "region",
@@ -69,7 +69,7 @@
           "HK"
         ],
         "defaultValue": "GLOBAL",
-        "description": "GLOBAL reports the agreed figure across every region that answers. Picking a single region shows only that manifest. EU, KR, MX, TW and HK have no directly readable manifest of their own, so they are reported as an estimate."
+        "description": "GLOBAL reports the figure the answering regions agree on. Picking a single region shows only that list. EU, KR, MX, TW and HK publish no list that can be read, so they are shown as a placeholder."
       },
       {
         "key": "myVersion",

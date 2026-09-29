@@ -174,7 +174,7 @@ BarWidget {
 
   //  quiet       nothing to report
   //  changed     a new version, a raised baseline or a rebuilt image, last day
-  //  source-down the API stopped answering; the mark goes dim
+  //  source-down the source stopped answering; the mark goes dim
   //  none        no reading yet
   readonly property string markState: {
     if (!reading) return "none"

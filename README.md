@@ -25,9 +25,9 @@ updated in place, so a monitor that runs for months does not leave a wall of toa
 ## Requirements
 
 Omarchy, which is what makes both halves of this plugin work: a `bar-widget` and a `service`, running inside
-`omarchy-shell`. Plus `bash`, `curl` and `jq`. `jq` is a declared dependency of the Omarchy package and `curl`
-is on any Omarchy install, so there is nothing extra to install. No Node, no Python, no daemon of its own: the
-service is a timer inside the shell.
+`omarchy-shell`. Plus `bash`, `curl`, `jq` and `xmllint` (from `libxml2`, which is installed on any Omarchy
+system). `jq` is a declared dependency of the Omarchy package and `curl` is on any Omarchy install, so there is
+nothing extra to install. No Node, no Python, no daemon of its own: the service is a timer inside the shell.
 
 ## Install
 
@@ -45,11 +45,16 @@ To run a clone you already have, copy the folder into `~/.config/omarchy/plugins
 `omarchy-shell shell rescanPlugins`.
 
 The first reading lands a few seconds after the shell starts. Nothing is fetched while the bar draws: the
-helper script owns the network and the widget only ever reads a file. One reply is capped at 1 MiB, so a source
-that sends more than that, or never stops sending, is refused with the reason recorded and the last reading kept.
-A source that answers with a redirect is refused as well: the target of a redirect is chosen by whoever answers,
-and it can be a plain HTTP address on this machine or on the local network. Point the source at the final https
-address instead.
+helper script owns the network and the widget only ever reads a file. Sony publishes one small list per region,
+so a check asks each of the thirteen regions once, over https. One reply is capped at 1 MiB, and a source that
+sends more than that, or never stops sending, is refused with the reason recorded and the last reading kept. A
+source that answers with a redirect is refused as well: the target of a redirect is chosen by whoever answers,
+and it can be a plain HTTP address on this machine or on the local network.
+
+Sony's certificate is issued by Sony's own authority rather than by a public one, so the root certificate
+travels with the plugin (`assets/scei-dnas-root-05.pem`) and is handed to `curl` as the trust anchor. The read
+is therefore both encrypted and authenticated: nothing on the way can change a word of it without Sony's key.
+The file is pinned by a test, so replacing it is a deliberate, visible change.
 
 ## Removal
 
@@ -73,15 +78,20 @@ All five live in the widget's own settings (the bar's settings UI, or `~/.config
 
 | Setting | Default | What it does |
 |---|---|---|
-| Check interval (minutes) | 30 | How often the manifest is read. The public API caches its own answers for 30 minutes, so checking much faster mostly repeats the same numbers. |
-| Region on the bar | GLOBAL | The scope the bar, the tooltip and the notification follow. GLOBAL is the agreed figure across the regions that answer; a single region follows only that manifest. |
+| Check interval (minutes) | 30 | How often the regional lists are read. Sony publishes no cache header and mostly repeats the same numbers, so a faster check costs requests without saying more. |
+| Region on the bar | GLOBAL | The scope the bar, the tooltip and the notification follow. GLOBAL is the figure the answering regions agree on; a single region follows only that list. |
 | Your firmware | empty | The version your console runs, for example `13.60`. The panel compares it with the minimum and the latest. |
 | Notify when firmware changes | on | One notification, updated in place, for the four changes below. |
 | Notify when the source stops answering | on | Only after four failed checks in a row, never on a single hiccup. |
 
-EU, KR, MX, TW and HK publish no manifest that can be read directly. Those rows in the panel show a placeholder
-instead of numbers, because a borrowed figure would be a guess, and the GLOBAL row directly above them is the
-best answer available.
+Eight of the thirteen regions publish a list that can be read: us, jp, uk, au, sa, ru, cn and br. EU, KR, MX, TW
+and HK do not, so those rows in the panel show a placeholder instead of numbers, and the GLOBAL row directly
+above them is the best answer available. The bar follows whichever scope you pick, so a region with no list
+of its own simply has nothing to show.
+
+GLOBAL is computed here rather than handed over: it is the pair of versions that the answering regions agree
+on. One region lagging behind does not move it, and a real disagreement is reported as one, with the newest
+figure shown and the row marked `PARTIAL`.
 
 ## When it notifies
 
@@ -105,7 +115,12 @@ The helper writes one file, and the bar, the panel and the command line all read
 ```
 
 Every rule lives in `bin/ps5-firmware` and `lib/*.jq`. The QML draws what that file says and decides nothing
-itself, so the panel cannot show a different truth from the one that sent the notification. Removing the plugin
+itself, so the panel cannot show a different truth from the one that sent the notification.
+
+The helper reads that file as a plain, bounded file: a path that is not a regular file (a FIFO, or a link to
+somewhere else) or that is larger than 1 MiB counts as no previous reading rather than being followed, so a
+substituted path cannot hold a scheduled check up. The state file and the notification id are written through
+a fresh file in the same directory and renamed over the target, for the same reason. Removing the plugin
 leaves the file behind on purpose: it is a reading, not a setting. Delete the folder if you want a clean slate.
 
 ## Command line
@@ -131,18 +146,31 @@ record that, not crash the thing that called it. Exit 2 is a usage error and exi
 ./tests/run.sh
 ```
 
-74 cases, none of which need the network. `tests/fixtures/` holds a real API reply from 2026-09-25 plus four
-variants that each change exactly one thing, so a failing test points at a single rule instead of at a pile of
-data. The suite never touches the desktop it runs on: every notification goes to a stand-in under
-`tests/support/` and the assertions are made against what would have been sent. Two stand-in sources cover the
-ways a reply can misbehave: one that sends far too much, and one that answers with a redirect and records every
-address it was asked for.
+112 cases, none of which need the network. `tests/fixtures/` holds a real API reply from 2026-09-25 plus four
+variants that each change exactly one thing, and `tests/fixtures/sony/` holds real regional lists from Sony
+with a few edits, so a failing test points at a single rule instead of at a pile of data. The suite never
+touches the desktop it runs on: every notification goes to a stand-in under `tests/support/`. Three stand-ins
+cover the ways a source can misbehave: one that sends far too much, one that answers with a redirect, and one
+that speaks for Sony's hosts and can serve a list, withhold one, hand over another region's list, or answer
+with something that is not a list at all.
 
 ## Data source, credits and trademarks
 
-The readings come from [psn.etawen.lol](https://psn.etawen.lol) (`/api/manifest`), an unofficial aggregator
-that reads Sony's own update manifests. All credit for the data is theirs. This plugin only watches it, adds
-the comparison and decides when you want to hear about it.
+The readings come from Sony's own update hosts. One list per region, the same `updatelist.xml` a console reads
+when it checks for a system update:
+
+```
+https://f<region>01.ps5.update.playstation.net/update/ps5/official/<title-id>/list/<region>/updatelist.xml
+```
+
+Thirteen regions are asked; eight answer. The plugin reads them once per check, identifies itself honestly
+(`ps5-firmware-omarchy/<version>` in the user agent) and never downloads the firmware image itself, only the
+small list that points at it.
+
+Until 0.3.0 the readings came from [psn.etawen.lol](https://psn.etawen.lol), a community aggregator that read
+these same lists and published them as one JSON document. Its author shut the host down on 2026-09-29, so the
+plugin now does that reading itself. The credit for making these lists public and legible belongs to the people
+who mapped them out before us.
 
 This plugin is unofficial and not affiliated with, endorsed by or connected to Sony Interactive Entertainment.
 "PlayStation" and the PlayStation mark are trademarks of Sony. The mark drawn in the bar comes from

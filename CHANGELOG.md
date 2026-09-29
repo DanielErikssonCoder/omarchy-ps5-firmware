@@ -4,6 +4,52 @@ All notable changes to this project are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-09-29
+
+### Changed
+
+- The readings now come from Sony's own update hosts instead of the community aggregator
+  `psn.etawen.lol`, whose author shut it down on 2026-09-29. Nothing else changed: the manifest the rest of
+  the plugin reads keeps its shape, so the comparison, the state file, the notifications and the panel are
+  the same code they were.
+- Each of the thirteen regional lists is read over https, measured against Sony's own root certificate,
+  which now travels with the plugin (`assets/scei-dnas-root-05.pem`). Sony's certificate is issued by Sony's
+  own authority rather than a public one, so that root is the anchor: the read is encrypted, the server has
+  to prove it is Sony's, and nothing on the way can change a byte of it. A test fails if the file changes,
+  so replacing the anchor is a deliberate, visible act.
+- GLOBAL is computed here now: the pair of versions the answering regions agree on. One region lagging
+  behind does not move it, and a real disagreement is shown as one, with the newest figure and a `PARTIAL`
+  row. Eight of the thirteen regions answer (us, jp, uk, au, sa, ru, cn, br); eu, kr, mx, tw and hk do not,
+  exactly as before.
+- The check no longer relies on somebody else's cache: the regional lists carry no cache header, so the
+  interval setting is the only thing that decides how often they are read.
+
+### Added
+
+- `lib/sony.sh`, the fetch half: one request per region, with the same timeout, size cap and no-redirect
+  rule as any other source, and our own wording for every way a region can fail.
+- `lib/sony.jq`, the arithmetic, which runs with no network at all, and `lib/regions.json`, the region
+  table with the names the panel has always shown.
+- `xmllint` (from `libxml2`) as a declared dependency: `jq` cannot read XML, and libxml2 is installed on any
+  Omarchy system.
+
+### Fixed
+
+- The state file and the id of the notification that is updated in place are read as
+  plain, bounded files. A path that is not a regular file (a FIFO, or a link) or that is
+  larger than 1 MiB is treated as "no previous reading" instead of being followed, so a
+  substituted path cannot hold a scheduled check up or hand the comparison an unbounded
+  file. Both are also written through a fresh file in the same directory and renamed over
+  the target, so a name that was replaced by a link is replaced rather than written
+  through. Raised by the marketplace review.
+
+### Notes
+
+- The test suite grew from 74 to 112 cases, including a stand-in for Sony's hosts. It covers a region that
+  lags behind another, a list belonging to a different region, a reply that is not a list, no region
+  answering at all, the wording of a failed region, the pinned certificate, that each region is asked
+  exactly once per check, and the state file being a link, a FIFO or larger than the cap.
+
 ## [0.2.1] - 2026-09-28
 
 ### Fixed
@@ -60,6 +106,7 @@ All notable changes to this project are recorded here. The format follows
 - A test suite of 54 cases that runs offline against a recorded API reply and four variants that change one
   thing each, with a stand-in for the notification tool so the suite never touches the desktop it runs on.
 
+[0.3.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.3.0
 [0.2.1]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.2.1
 [0.2.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.2.0
 [0.1.0]: https://github.com/DanielErikssonCoder/omarchy-ps5-firmware/releases/tag/v0.1.0

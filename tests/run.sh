@@ -315,6 +315,303 @@ else
   printf '  skip  the redirect cases (python3 is not installed)\n'
 fi
 
+# Sony shut the aggregator this plugin used to read (psn.etawen.lol) down on
+# 2026-09-29, so the plugin now reads Sony's own regional lists itself: over
+# https, against the Sony root certificate that travels with it. The stand-in
+# below holds one file per region and answers 404 for the rest, which is what the
+# real hosts do: eight of the thirteen regions have a list, five do not.
+echo "the source is Sony's own regional lists"
+
+SONY_FIX="$FIX/sony"
+
+sony_start() {  # sony_start <directory with one <code>.xml per region>
+  : >"$WORK/sony.log"
+  # The port file is written by the server, so an earlier server's file has to go
+  # first: a leftover would be read as this server's port and every region would
+  # look unreachable.
+  rm -f "$WORK/sonyport"
+  python3 "$TESTS_DIR/support/sony-server.py" "$WORK/sonyport" "$1" "$WORK/sony.log" \
+    >/dev/null 2>&1 &
+  SONYPID=$!
+  for _ in $(seq 60); do [[ -s $WORK/sonyport ]] && break; sleep 0.1; done
+  local port
+  port=$(cat "$WORK/sonyport" 2>/dev/null || echo 0)
+  PS5_SONY_BASE="http://127.0.0.1:$port"
+  export PS5_SONY_BASE
+}
+
+sony_stop() {
+  kill "$SONYPID" 2>/dev/null
+  wait "$SONYPID" 2>/dev/null
+  unset PS5_SONY_BASE
+}
+
+# sony_run <state> <now> [extra...]: the check as it runs on the desktop, with no
+# --source at all.
+sony_run() {
+  local state=$1 now=$2
+  shift 2
+  "$CLI" --once --quiet --json --state "$state" --now "$now" "$@" >/dev/null 2>&1
+}
+
+# sony_reason <curl exit> <stderr file>: our own words for a region that failed.
+sony_reason_of() {
+  bash -c 'set -euo pipefail; PLUGIN_DIR=$1; LIB_DIR=$1/lib; SOURCE_MAX_BYTES=1048576
+           SOURCE_TIMEOUT=20; source "$1/lib/sony.sh"; sony_reason "$2" "${3:-/dev/null}" 0' \
+    _ "$PLUGIN_DIR" "$1" "${2:-}" 2>/dev/null || true
+}
+
+if command -v python3 >/dev/null 2>&1 && command -v xmllint >/dev/null 2>&1; then
+  mkdir -p "$WORK/sony-a" "$WORK/sony-b" "$WORK/sony-c" "$WORK/sony-d" "$WORK/sony-empty"
+  cp "$SONY_FIX/updatelist-us-14.00.xml" "$WORK/sony-a/us.xml"
+  cp "$SONY_FIX/updatelist-jp-14.00.xml" "$WORK/sony-a/jp.xml"
+  cp "$SONY_FIX/updatelist-us-15.00.xml" "$WORK/sony-b/us.xml"
+  cp "$SONY_FIX/updatelist-jp-14.00.xml" "$WORK/sony-b/jp.xml"
+  cp "$SONY_FIX/updatelist-us-14.00.xml" "$WORK/sony-c/us.xml"
+  cp "$SONY_FIX/updatelist-us-14.00.xml" "$WORK/sony-c/jp.xml"   # jp gets the US list
+  cp "$SONY_FIX/not-a-list.txt" "$WORK/sony-d/us.xml"
+
+  sony_start "$WORK/sony-a"
+  S="$WORK/sony-state/state.json"
+  sony_run "$S" 2026-09-29T10:00:00Z
+  assert "the reading says it came from Sony" \
+    '.sourceOk == true and .reading.source.name == "Sony"' "$S"
+  assert "the regions that answered are the live ones" \
+    '[.reading.regions[] | select(.status == "LIVE")] | length == 2' "$S"
+  assert "the global figure is the one they agree on" \
+    '.reading.global.latest == "14.00" and .reading.global.minimum == "13.60"
+     and .reading.global.agree == 2' "$S"
+  assert "the regions without a list are still counted" \
+    '.reading.global.available == 2 and .reading.global.total == 13' "$S"
+  assert "a region without a list says why, in our words" \
+    'any(.reading.regions[]; .code == "eu" and .error == "HTTP 404")' "$S"
+  assert "the build hash still comes out of the image path" \
+    '.view.buildHash | startswith("1eb4b184")' "$S"
+  asked=$(wc -l <"$WORK/sony.log" | tr -d ' ')
+  if [[ $asked == 13 ]]; then
+    ok "each region is asked once per check"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n        asked %s times, wanted 13\n' \
+      "each region is asked once per check" "$asked"
+  fi
+  sony_run "$S" 2026-09-29T10:30:00Z --region jp
+  assert "the region setting still scopes the reading" \
+    '.view.code == "jp" and .view.latest == "14.00"' "$S"
+  sony_stop
+
+  echo "a region that has not caught up"
+  sony_start "$WORK/sony-b"
+  S="$WORK/sony-b-state/state.json"
+  sony_run "$S" 2026-09-29T10:00:00Z
+  assert "one region ahead moves the global figure" '.reading.global.latest == "15.00"' "$S"
+  assert "a disagreement is reported as a disagreement" \
+    '.reading.global.agree == 1 and .reading.global.available == 2
+     and .view.status == "PARTIAL"' "$S"
+  sony_stop
+
+  echo "a list that belongs to another region"
+  sony_start "$WORK/sony-c"
+  S="$WORK/sony-c-state/state.json"
+  sony_run "$S" 2026-09-29T10:00:00Z
+  assert "another region's list is not read as this one's" \
+    'any(.reading.regions[]; .code == "jp" and .status == "UNAVAILABLE")' "$S"
+  assert "the region with its own list is still read" \
+    'any(.reading.regions[]; .code == "us" and .status == "LIVE")' "$S"
+  sony_stop
+
+  echo "a reply that is not a list at all"
+  sony_start "$WORK/sony-d"
+  S="$WORK/sony-d-state/state.json"
+  sony_run "$S" 2026-09-29T10:00:00Z
+  assert "a reply that is not a list is refused" '.sourceOk == false' "$S"
+  assert "the reason says how many lists answered" \
+    '.lastError | test("none of the 13 regional lists answered")' "$S"
+  sony_stop
+
+  echo "no region answering at all"
+  S="$WORK/sony-kept/state.json"
+  sony_start "$WORK/sony-a"
+  sony_run "$S" 2026-09-29T10:00:00Z
+  sony_stop
+  sony_start "$WORK/sony-empty"
+  sony_run "$S" 2026-09-29T10:30:00Z
+  assert "a source that answers nothing is recorded as down" \
+    '.sourceOk == false and .failsInARow == 1' "$S"
+  assert "the last good reading survives it" \
+    '.view.latest == "14.00" and .reading.source.health == "PARTIAL"' "$S"
+  sony_stop
+
+  # The tool that noticed is not the thing a reader should have to interpret.
+  for pair in "6:the host did not resolve" "28:the reply did not finish in 20 seconds" \
+    "60:the certificate did not verify against the Sony root the plugin carries"; do
+    code=${pair%%:*}
+    want=${pair#*:}
+    got=$(sony_reason_of "$code")
+    if [[ $got == "$want" ]]; then
+      ok "a region that failed is explained in our words (curl $code)"
+    else
+      fail=$((fail + 1))
+      printf '  FAIL  %s\n        wanted %s, got %s\n' \
+        "a region that failed is explained in our words (curl $code)" "$want" "${got:-nothing}"
+    fi
+  done
+  printf 'curl: (22) The requested URL returned error: 404\n' >"$WORK/sony-404.err"
+  got=$(sony_reason_of 22 "$WORK/sony-404.err")
+  if [[ $got == "HTTP 404" ]]; then
+    ok "the http status is read out of curl's line, not guessed"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n        wanted HTTP 404, got %s\n' \
+      "the http status is read out of curl's line, not guessed" "${got:-nothing}"
+  fi
+
+  # The anchor is the exact certificate the https path was measured against. A
+  # different file changes what this plugin trusts, so replacing it has to be a
+  # deliberate, visible change rather than a quiet one.
+  if [[ $(sha256sum "$PLUGIN_DIR/assets/scei-dnas-root-05.pem" | cut -d' ' -f1) \
+        == "1822b8906539482c181577f9d9321bba711038ba5e3431447f0dcd7683733d0f" ]]; then
+    ok "the pinned Sony root is the certificate this was measured against"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n' "the pinned Sony root is not the certificate this was measured against"
+  fi
+  if grep -qF -- "--proto '=https'" "$PLUGIN_DIR/lib/sony.sh" \
+    && grep -qF -- '--cacert "$SONY_CA"' "$PLUGIN_DIR/lib/sony.sh" \
+    && grep -qF -- '--max-redirs 0' "$PLUGIN_DIR/lib/sony.sh"; then
+    ok "the Sony read is https only, pinned, and follows no redirect"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n' "the Sony read no longer insists on https and the pinned root"
+  fi
+  if grep -rn 'psn\.etawen\.lol' "$PLUGIN_DIR/bin" "$PLUGIN_DIR/lib" "$PLUGIN_DIR"/*.qml \
+      >/dev/null 2>&1; then
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n' "the plugin still asks the aggregator that was shut down"
+  else
+    ok "nothing asks the aggregator that was shut down"
+  fi
+  if grep -q "Sony's own update lists" "$PLUGIN_DIR/Panel.qml"; then
+    ok "the panel says where the numbers come from"
+  else
+    fail=$((fail + 1))
+    printf '  FAIL  %s\n' "the panel does not say where the numbers come from"
+  fi
+else
+  printf '  skip  the Sony cases (python3 or xmllint is missing)\n'
+fi
+
+# The state file is the plugin's own, but it is read by path, so a path that has
+# been replaced by something else must not be able to hold the check up, or to be
+# read without a bound. Raised by the marketplace review: a substituted FIFO can
+# stall a scheduled check, an oversized file can exhaust memory, and notify.id was
+# written straight over whatever the name pointed at.
+echo "the state file is read as a plain, bounded file"
+HARD="$WORK/hardening"
+mkdir -p "$HARD"
+S="$HARD/state.json"
+run "$S" 2026-09-29T10:00:00Z "$BASE"
+if [[ -f $S && ! -L $S ]]; then
+  ok "the first run writes a plain state file"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the first run writes a plain state file"
+fi
+
+# A link where the state belongs is not a previous reading, and the run must
+# replace the link rather than write through it.
+cp "$S" "$HARD/elsewhere.json"
+cp "$S" "$HARD/elsewhere.expected.json"
+rm -f "$S"
+ln -s "$HARD/elsewhere.json" "$S"
+expect_exit "--print refuses a state file that is a link" 2 "$CLI" --print --state "$S"
+run "$S" 2026-09-29T11:00:00Z "$LATEST"
+if [[ -f $S && ! -L $S ]]; then
+  ok "a run replaces a linked state path instead of writing through it"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "a run replaces a linked state path instead of writing through it"
+fi
+if cmp -s "$HARD/elsewhere.json" "$HARD/elsewhere.expected.json"; then
+  ok "the file the link pointed at is left untouched"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the file the link pointed at is left untouched"
+fi
+assert "a refused link counts as no previous reading" '.checks == 1 and .events == []' "$S"
+
+# A FIFO in that place must not make the scheduled check wait for a writer. The
+# service always passes --if-stale, and that is the read a FIFO would stall.
+rm -f "$S"
+mkfifo "$S"
+start=$(date +%s)
+timeout 20 "$CLI" --once --quiet --json --state "$S" --now 2026-09-29T12:00:00Z \
+  --source "$BASE" --if-stale 3600 >/dev/null 2>&1
+rc=$?
+elapsed=$(( $(date +%s) - start ))
+if [[ $rc == 0 && $elapsed -lt 10 ]]; then
+  ok "a FIFO in the state path does not stall the check"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n        exit %s after %ss\n' \
+    "a FIFO in the state path does not stall the check" "$rc" "$elapsed"
+fi
+if [[ -f $S && ! -p $S ]]; then
+  ok "the run replaces the FIFO with a real file"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the run replaces the FIFO with a real file"
+fi
+
+# A state file past the cap is refused rather than slurped. The file is made
+# fresh on purpose: if it were read, --if-stale would skip the check, so a state
+# carrying this run's own timestamp is the proof that it was refused.
+rm -f "$S"
+NOWREAL=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+jq -c --arg now "$NOWREAL" '.takenAt = $now | . + {filler: ("x" * 1200000)}' \
+  "$HARD/elsewhere.json" >"$S"
+if [[ $(stat -c %s "$S") -gt 1048576 ]]; then
+  ok "the oversized case really is larger than the cap"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the oversized case really is larger than the cap"
+fi
+"$CLI" --once --quiet --json --state "$S" --now 2026-09-29T13:00:00Z --source "$BASE" \
+  --if-stale 3600 >/dev/null 2>&1
+assert "a state file past the cap is refused, so the check runs" \
+  '.takenAt == "2026-09-29T13:00:00Z"' "$S"
+assert "and the run started from scratch instead of trusting it" \
+  '.sourceOk == true and .checks == 1' "$S"
+
+# The id of the bubble that is being updated is read and written the same way.
+# Its own directory, so nothing earlier in the suite has left an id file there.
+mkdir -p "$HARD/notify"
+S="$HARD/notify/state.json"
+run "$S" 2026-09-29T10:00:00Z "$BASE"
+printf 'original\n' >"$HARD/notify/keep-target"
+ln -s "$HARD/notify/keep-target" "$HARD/notify/notify.id"
+if [[ -L $HARD/notify/notify.id ]]; then
+  ok "the notify.id case starts with a link in place"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the notify.id case starts with a link in place"
+fi
+: >"$PS5_NOTIFY_LOG"
+run "$S" 2026-09-29T10:30:00Z "$LATEST"
+counts "a change is still announced with a link at notify.id" 1
+if [[ -f $HARD/notify/notify.id && ! -L $HARD/notify/notify.id ]]; then
+  ok "the id is written to a real file, not through the link"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the id is written to a real file, not through the link"
+fi
+if [[ $(cat "$HARD/notify/keep-target" 2>/dev/null) == "original" ]]; then
+  ok "the file that link pointed at is left untouched"
+else
+  fail=$((fail + 1))
+  printf '  FAIL  %s\n' "the file that link pointed at is left untouched"
+fi
+
 # Qt's default textFormat is AutoText, which reads a string as HTML. The panel
 # renders strings that come from the source, so a manifest carrying
 # <img src="http://..."> would make the panel try to fetch that URL. Every Text

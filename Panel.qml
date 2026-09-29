@@ -201,9 +201,10 @@ Panel {
   // ---- the region matrix ---------------------------------------------------
   //
   // One row per region the source reports, GLOBAL first, then the regions that
-  // answer, then the ones that publish nothing we can read. A row with no
-  // manifest of its own shows a dash: the aggregate is the best answer
-  // available and it already has its own row directly above.
+  // answer, then the ones that publish nothing we can read. A row with no list
+  // of its own shows no numbers, and the footnote below the matrix names those
+  // regions: the GLOBAL row is the answer that applies to them, and it already
+  // has its own row directly above.
   readonly property var rows: {
     var all = (root.state && root.state.views) ? root.state.views : null
     if (!all) return []
@@ -221,7 +222,7 @@ Panel {
         live: live,
         status: live
           ? "live"
-          : (entry.status === "PARTIAL" ? "partial" : "no manifest")
+          : (entry.status === "PARTIAL" ? "partial" : "not published")
       })
     }
     out.sort(function(a, b) {
@@ -232,6 +233,10 @@ Panel {
     })
     return out
   }
+
+  // The regions that publish nothing: named in the footnote, derived from the
+  // reading rather than listed by hand, so the sentence cannot go stale.
+  readonly property var silentRegions: rows.filter(function(r) { return !r.live }).map(function(r) { return r.code })
 
   function ageText(iso) {
     if (!iso) return ""
@@ -619,9 +624,12 @@ Panel {
           textFormat: Text.PlainText
           width: parent.width
           visible: root.rows.length > 0
-          text: "Rows marked \"no manifest\" publish nothing we can read directly, so they show no numbers. "
-            + "The GLOBAL row is the agreed figure from the " + (root.view ? root.view.readable : 0)
-            + " that answer."
+          text: root.silentRegions.length > 0
+            ? "Sony publishes no list for " + root.silentRegions.join(", ")
+              + ", so those rows show no numbers instead of a guess. The GLOBAL row is the figure the "
+              + (root.view ? root.view.readable : 0) + " regions that answer agree on."
+            : "The GLOBAL row is the figure the " + (root.view ? root.view.readable : 0)
+              + " regions that answer agree on."
           color: root.ink
           opacity: 0.55
           font.family: root.family
@@ -756,7 +764,7 @@ Panel {
         Text {
           textFormat: Text.PlainText
           width: parent.width
-          text: "Data: psn.etawen.lol. Unofficial, not affiliated with Sony."
+          text: "Data: Sony's own update lists. Unofficial, not affiliated with Sony."
           color: root.ink
           opacity: 0.5
           font.family: root.family

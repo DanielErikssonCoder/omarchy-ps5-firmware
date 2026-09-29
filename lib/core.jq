@@ -21,8 +21,11 @@ def shape:
   {
     schema: 1,
     source: {
-      name: "psn.etawen.lol",
-      url: "https://psn.etawen.lol/api/manifest",
+      # The source is whatever the manifest says it is: this plugin has read a
+      # public API and now reads Sony's own lists, and the reading has to be able
+      # to say which one produced it.
+      name: (.source.name // "unknown"),
+      url: (.source.url // null),
       reportedAt: (.checkedAt // null),
       health: (.health // "UNKNOWN"),
       live: (.live // 0),
